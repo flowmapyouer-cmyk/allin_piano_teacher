@@ -19,15 +19,26 @@ st.markdown(
       .block-container {{ padding-top: 1.6rem; }}
       .yp-title {{ font-size: 1.3rem; font-weight: 700; margin-bottom: 0; }}
       .yp-sub {{ color: #726D62; font-size: 0.85rem; margin-top: 2px; }}
-      .yp-badge {{
-        display: inline-block; font-size: 0.72rem; font-weight: 700;
-        padding: 2px 9px; border-radius: 999px; margin-bottom: 6px;
+      .yp-daynum {{ font-size: 0.75rem; color: #A39D8F; font-variant-numeric: tabular-nums; }}
+
+      /* 달력 셀(테두리 컨테이너) 카드처럼 보이게 */
+      div[data-testid="stVerticalBlockBorderWrapper"] {{
+        border-radius: 10px !important;
+        transition: box-shadow .15s, border-color .15s;
       }}
-      .yp-badge.urgent {{ background: #F6E2DC; color: {URGENT}; }}
-      .yp-badge.idea {{ background: #FBEBCB; color: {IDEA}; }}
-      .yp-badge.general {{ background: #DEEEEC; color: {ACCENT}; }}
-      .yp-badge.resolved {{ background: #DFEEE4; color: {RESOLVED}; }}
-      .yp-daynum {{ font-size: 0.75rem; color: #A39D8F; }}
+      div[data-testid="stVerticalBlockBorderWrapper"]:hover {{
+        box-shadow: 0 2px 10px -4px rgba(31,111,114,0.25);
+        border-color: {ACCENT} !important;
+      }}
+
+      /* 사이드바 탭 버튼 살짝 둥글게 */
+      section[data-testid="stSidebar"] button {{ border-radius: 9px !important; }}
+
+      /* 달력 안 등록 버튼(작은 보조 버튼) 살짝 흐리게 */
+      div[data-testid="stVerticalBlockBorderWrapper"] button {{
+        font-size: 0.78rem !important;
+        padding: 2px 6px !important;
+      }}
     </style>
     """,
     unsafe_allow_html=True,
@@ -114,8 +125,7 @@ def render_calendar(entries_by_day: dict, key_prefix: str, entry_label_fn, add_d
                 st.markdown(f'<div class="yp-daynum">{day}</div>', unsafe_allow_html=True)
                 day_entries = entries_by_day.get(day, [])
                 for idx, entry in enumerate(day_entries):
-                    badge_class, label = entry_label_fn(entry)
-                    st.markdown(f'<span class="yp-badge {badge_class}"></span>', unsafe_allow_html=True)
+                    _, label = entry_label_fn(entry)
                     if st.button(label, key=f"{key_prefix}_{year}_{month}_{day}_{idx}", use_container_width=True):
                         view_dialog_fn(entry, f"{year}년 {month}월 {day}일")
                 if st.button("＋ 등록", key=f"{key_prefix}_add_{year}_{month}_{day}", use_container_width=True):
@@ -209,8 +219,9 @@ def general_view_dialog(entry: dict, date_label: str):
 
 
 def general_entry_label(entry: dict):
-    badge_class = "idea" if entry["type"] == "idea" else "general"
-    return badge_class, entry["owner"]
+    if entry["type"] == "idea":
+        return "idea", f"🟡 {entry['owner']}"
+    return "general", f"⚪ {entry['owner']}"
 
 
 def render_general():
@@ -271,7 +282,7 @@ def resolved_view_dialog(entry: dict, date_label: str):
 
 
 def resolved_entry_label(entry: dict):
-    return "resolved", f"[{entry['status']}] {entry['owner']}"
+    return "resolved", f"🟢 [{entry['status']}] {entry['owner']}"
 
 
 def render_resolved():
