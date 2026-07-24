@@ -24,6 +24,7 @@ st.markdown(
       /* 달력 셀(테두리 컨테이너) 카드처럼 보이게 */
       div[data-testid="stVerticalBlockBorderWrapper"] {{
         border-radius: 10px !important;
+        border-color: #E3E0D8 !important;
         transition: box-shadow .15s, border-color .15s;
       }}
       div[data-testid="stVerticalBlockBorderWrapper"]:hover {{
@@ -34,15 +35,59 @@ st.markdown(
       /* 사이드바 탭 버튼 살짝 둥글게 */
       section[data-testid="stSidebar"] button {{ border-radius: 9px !important; }}
 
-      /* 달력 안 등록 버튼(작은 보조 버튼) 살짝 흐리게 */
+      /* 달력 안 버튼 전반 (등록 항목 + "등록" 버튼) 폭 줄이고 텍스트 왼쪽 정렬 */
       div[data-testid="stVerticalBlockBorderWrapper"] button {{
         font-size: 0.78rem !important;
-        padding: 2px 6px !important;
+        padding: 3px 8px !important;
+        justify-content: flex-start !important;
+        min-height: 0 !important;
+      }}
+      /* "＋ 등록" 버튼은 은은하게 (tertiary 스타일) */
+      div[data-testid="stVerticalBlockBorderWrapper"] button[kind="tertiary"] {{
+        color: #A39D8F !important;
+        justify-content: center !important;
+      }}
+      div[data-testid="stVerticalBlockBorderWrapper"] button[kind="tertiary"]:hover {{
+        color: {ACCENT} !important;
+      }}
+
+      .yp-daynum.today {{
+        display: inline-block;
+        background: {ACCENT}; color: #fff;
+        border-radius: 5px; padding: 0 6px;
+        font-weight: 700;
       }}
     </style>
     """,
     unsafe_allow_html=True,
 )
+
+
+ENTRY_COLORS = {
+    "idea": ("#FBEBCB", "#8A6216", "transparent"),
+    "general": ("#FBFAF7", "#24221E", "#E3E0D8"),
+    "resolved": ("#DFEEE4", "#1F5C3F", "transparent"),
+}
+
+
+def inject_entry_style(button_key: str, badge_class: str):
+    bg, fg, border = ENTRY_COLORS.get(badge_class, ("#FBFAF7", "#24221E", "#E3E0D8"))
+    st.markdown(
+        f"""
+        <style>
+        .st-key-{button_key} button {{
+            background: {bg} !important;
+            color: {fg} !important;
+            border: 1px solid {border} !important;
+            font-weight: 600 !important;
+        }}
+        .st-key-{button_key} button:hover {{
+            filter: brightness(0.96);
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 if "nav" not in st.session_state:
     st.session_state.nav = "urgent"
@@ -115,6 +160,7 @@ def render_calendar(entries_by_day: dict, key_prefix: str, entry_label_fn, add_d
             unsafe_allow_html=True,
         )
 
+    today = date.today()
     for w_idx, week in enumerate(weeks):
         cols = st.columns(7)
         for i, day in enumerate(week):
@@ -122,13 +168,18 @@ def render_calendar(entries_by_day: dict, key_prefix: str, entry_label_fn, add_d
                 if day == 0:
                     st.markdown("&nbsp;", unsafe_allow_html=True)
                     continue
-                st.markdown(f'<div class="yp-daynum">{day}</div>', unsafe_allow_html=True)
+                is_today = date(year, month, day) == today
+                daynum_class = "yp-daynum today" if is_today else "yp-daynum"
+                st.markdown(f'<div class="{daynum_class}">{day}</div>', unsafe_allow_html=True)
                 day_entries = entries_by_day.get(day, [])
                 for idx, entry in enumerate(day_entries):
-                    _, label = entry_label_fn(entry)
-                    if st.button(label, key=f"{key_prefix}_{year}_{month}_{day}_{idx}", use_container_width=True):
+                    badge_class, label = entry_label_fn(entry)
+                    btn_key = f"{key_prefix}_{year}_{month}_{day}_{idx}"
+                    inject_entry_style(btn_key, badge_class)
+                    if st.button(label, key=btn_key, use_container_width=True):
                         view_dialog_fn(entry, f"{year}년 {month}월 {day}일")
-                if st.button("＋ 등록", key=f"{key_prefix}_add_{year}_{month}_{day}", use_container_width=True):
+                if st.button("＋ 등록", key=f"{key_prefix}_add_{year}_{month}_{day}",
+                             use_container_width=True, type="tertiary"):
                     add_dialog_fn(date(year, month, day))
 
 
@@ -219,9 +270,8 @@ def general_view_dialog(entry: dict, date_label: str):
 
 
 def general_entry_label(entry: dict):
-    if entry["type"] == "idea":
-        return "idea", f"🟡 {entry['owner']}"
-    return "general", f"⚪ {entry['owner']}"
+    badge_class = "idea" if entry["type"] == "idea" else "general"
+    return badge_class, entry["owner"]
 
 
 def render_general():
@@ -231,8 +281,12 @@ def render_general():
         st.caption("일반 문의는 무채색, 카페 활용 아이디어는 노란색으로 구분됩니다")
     with c2:
         st.markdown(
-            "<div style='text-align:right;font-size:0.8rem;color:#726D62;padding-top:1.6rem'>"
-            "⚪ 일반 문의 &nbsp;&nbsp; 🟡 아이디어</div>",
+            "<div style='text-align:right;font-size:0.78rem;color:#726D62;padding-top:1.7rem'>"
+            "<span style='display:inline-block;width:9px;height:9px;border:1px solid #E3E0D8;"
+            "border-radius:2px;margin-right:4px;vertical-align:middle'></span>일반 문의"
+            "&nbsp;&nbsp;"
+            f"<span style='display:inline-block;width:9px;height:9px;background:{IDEA};"
+            "border-radius:2px;margin-right:4px;vertical-align:middle'></span>아이디어</div>",
             unsafe_allow_html=True,
         )
 
@@ -282,7 +336,7 @@ def resolved_view_dialog(entry: dict, date_label: str):
 
 
 def resolved_entry_label(entry: dict):
-    return "resolved", f"🟢 [{entry['status']}] {entry['owner']}"
+    return "resolved", f"[{entry['status']}] {entry['owner']}"
 
 
 def render_resolved():
