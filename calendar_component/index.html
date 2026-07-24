@@ -1,0 +1,58 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  html, body { margin: 0; padding: 0; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+  function sendMessageToStreamlitClient(type, data) {
+    var outData = Object.assign({ isStreamlitMessage: true, type: type }, data);
+    window.parent.postMessage(outData, "*");
+  }
+
+  function init() {
+    sendMessageToStreamlitClient("streamlit:componentReady", { apiVersion: 1 });
+  }
+
+  function setFrameHeight(height) {
+    sendMessageToStreamlitClient("streamlit:setFrameHeight", { height: height });
+  }
+
+  function sendValue(value) {
+    sendMessageToStreamlitClient("streamlit:setComponentValue", { value: value });
+  }
+
+  var listenerAttached = false;
+
+  function onRender(event) {
+    var data = event.detail;
+    var root = document.getElementById("root");
+    root.innerHTML = data.args.html;
+
+    if (!listenerAttached) {
+      root.addEventListener("click", function (e) {
+        var el = e.target.closest("[data-action]");
+        if (!el) return;
+        e.preventDefault();
+        sendValue({
+          action: el.getAttribute("data-action"),
+          day: el.getAttribute("data-day"),
+          idx: el.getAttribute("data-idx"),
+          nonce: Date.now(),
+        });
+      });
+      listenerAttached = true;
+    }
+
+    setFrameHeight(root.scrollHeight);
+  }
+
+  window.addEventListener("streamlit:render", onRender);
+  init();
+</script>
+</body>
+</html>

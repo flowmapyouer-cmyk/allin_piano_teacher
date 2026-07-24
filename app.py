@@ -2,7 +2,7 @@
 import calendar
 import html as html_lib
 from datetime import date
-from urllib.parse import urlencode
+from pathlib import Path
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -10,6 +10,10 @@ import streamlit.components.v1 as components
 import db
 
 st.set_page_config(page_title="열피쌤 피드백 대시보드", layout="wide")
+
+_calendar_component = components.declare_component(
+    "yp_calendar", path=str(Path(__file__).parent / "calendar_component")
+)
 
 ACCENT = "#1F6F72"
 URGENT = "#C4432A"
@@ -28,15 +32,13 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ---------------- 상태 초기화 (URL 쿼리 파라미터를 기준으로) ----------------
-qp = st.query_params
-
+# ---------------- 상태 초기화 ----------------
 if "nav" not in st.session_state:
-    st.session_state.nav = qp.get("nav", "urgent")
+    st.session_state.nav = "urgent"
 if "cal_year" not in st.session_state:
-    st.session_state.cal_year = int(qp.get("year", date.today().year))
+    st.session_state.cal_year = date.today().year
 if "cal_month" not in st.session_state:
-    st.session_state.cal_month = int(qp.get("month", date.today().month))
+    st.session_state.cal_month = date.today().month
 
 
 def go_month(delta: int):
@@ -72,11 +74,6 @@ with st.sidebar:
                  type="primary" if st.session_state.nav == "resolved" else "secondary"):
         st.session_state.nav = "resolved"
         st.rerun()
-
-# 현재 상태를 URL에 반영 (달력 안 링크가 항상 최신 nav/year/month를 갖도록)
-st.query_params["nav"] = st.session_state.nav
-st.query_params["year"] = str(st.session_state.cal_year)
-st.query_params["month"] = str(st.session_state.cal_month)
 
 
 # ---------------- 공용: 월 이동 네비게이션 ----------------
@@ -120,13 +117,14 @@ CAL_CSS = f"""
     display: flex; align-items: center; justify-content: center;
     font-size: 12px; line-height: 1; color: #A39D8F; text-decoration: none;
     opacity: 0; transition: opacity .12s, border-color .12s, color .12s;
+    cursor: pointer;
   }}
   .cal-cell:hover .cell-add {{ opacity: 1; }}
   .cell-add:hover {{ border-color: {ACCENT}; color: {ACCENT}; }}
   .cal-card {{
     display: block; margin-top: 5px; font-size: 11.5px; padding: 3px 6px; border-radius: 5px;
     background: #FBFAF7; border: 1px solid #E3E0D8; color: #24221E; text-decoration: none;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
   }}
   .cal-card:hover {{ border-color: #A39D8F; }}
   .cal-card.idea {{ background: #FBEBCB; border-color: transparent; color: {IDEA}; }}
@@ -135,15 +133,9 @@ CAL_CSS = f"""
 """
 
 
-def build_calendar_html(entries_by_day: dict, entry_label_fn, nav_value: str, year: int, month: int) -> str:
+def build_calendar_html(entries_by_day: dict, entry_label_fn, year: int, month: int) -> str:
     today = date.today()
     weeks = calendar.Calendar(firstweekday=6).monthdayscalendar(year, month)
-
-    def link(**extra) -> str:
-        params = {"nav": nav_value, "year": year, "month": month}
-        params.update(extra)
-        return "?" + urlencode(params)
-
     dow_html = "".join(f"<div>{d}</div>" for d in ["일", "월", "화", "수", "목", "금", "토"])
 
     cells = []
@@ -154,21 +146,18 @@ def build_calendar_html(entries_by_day: dict, entry_label_fn, nav_value: str, ye
                 continue
             is_today = date(year, month, day) == today
             cell_cls = "cal-cell today" if is_today else "cal-cell"
-            add_href = link(add_day=day)
-            add_onclick = f"window.top.location.href='{add_href}';return false;"
             cards_html = []
             for idx, entry in enumerate(entries_by_day.get(day, [])):
                 badge_class, label = entry_label_fn(entry)
-                view_href = link(view_day=day, view_idx=idx)
-                view_onclick = f"window.top.location.href='{view_href}';return false;"
                 cards_html.append(
-                    f'<a class="cal-card {badge_class}" href="{view_href}" target="_top" '
-                    f'onclick="{view_onclick}">{html_lib.escape(label)}</a>'
+                    f'<a class="cal-card {badge_class}" href="#" '
+                    f'data-action="view" data-day="{day}" data-idx="{idx}">'
+                    f'{html_lib.escape(label)}</a>'
                 )
             cells.append(
                 f'<div class="{cell_cls}">'
                 f'<div class="cell-top"><span class="daynum">{day}</span>'
-                f'<a class="cell-add" href="{add_href}" target="_top" onclick="{add_onclick}">＋</a></div>'
+                f'<a class="cell-add" href="#" data-action="add" data-day="{day}">＋</a></div>'
                 f'{"".join(cards_html)}'
                 f'</div>'
             )
@@ -182,11 +171,28 @@ def build_calendar_html(entries_by_day: dict, entry_label_fn, nav_value: str, ye
     )
 
 
-def render_html_calendar(entries_by_day: dict, entry_label_fn, nav_value: str):
+def render_html_calendar(entries_by_day: dict, entry_label_fn, nav_value: str, add_dialog_fn, view_dialog_fn):
     year, month = st.session_state.cal_year, st.session_state.cal_month
-    weeks_count = len(calendar.Calendar(firstweekday=6).monthdayscalendar(year, month))
-    html_str = build_calendar_html(entries_by_day, entry_label_fn, nav_value, year, month)
-    components.html(html_str, height=40 + weeks_count * 92 + 10, scrolling=False)
+    html_str = build_calendar_html(entries_by_day, entry_label_fn, year, month)
+    result = _calendar_component(html=html_str, key=f"cal_{nav_value}", default=None)
+
+    nonce_key = f"_cal_nonce_{nav_value}"
+    if result and result.get("nonce") != st.session_state.get(nonce_key):
+        st.session_state[nonce_key] = result.get("nonce")
+        action = result.get("action")
+        try:
+            day = int(result.get("day"))
+        except (TypeError, ValueError):
+            return
+        if action == "add":
+            add_dialog_fn(date(year, month, day))
+        elif action == "view":
+            try:
+                idx = int(result.get("idx"))
+                entry = entries_by_day[day][idx]
+            except (TypeError, ValueError, KeyError, IndexError):
+                return
+            view_dialog_fn(entry, f"{year}년 {month}월 {day}일")
 
 
 # ---------------- 1. 긴급 확인 요청 ----------------
@@ -305,22 +311,8 @@ def render_general():
         day = int(r["date"].split("-")[2])
         entries_by_day.setdefault(day, []).append(r)
 
-    if "add_day" in qp:
-        try:
-            general_add_dialog(date(year, month, int(qp["add_day"])))
-        except ValueError:
-            pass
-        del st.query_params["add_day"]
-    elif "view_day" in qp and "view_idx" in qp:
-        try:
-            entry = entries_by_day[int(qp["view_day"])][int(qp["view_idx"])]
-            general_view_dialog(entry, f"{year}년 {month}월 {int(qp['view_day'])}일")
-        except (KeyError, ValueError, IndexError):
-            pass
-        del st.query_params["view_day"]
-        del st.query_params["view_idx"]
-
-    render_html_calendar(entries_by_day, general_entry_label, "general")
+    render_html_calendar(entries_by_day, general_entry_label, "general",
+                          general_add_dialog, general_view_dialog)
 
 
 # ---------------- 3. 해결 완료 건 ----------------
@@ -374,22 +366,8 @@ def render_resolved():
         day = int(r["date"].split("-")[2])
         entries_by_day.setdefault(day, []).append(r)
 
-    if "add_day" in qp:
-        try:
-            resolved_add_dialog(date(year, month, int(qp["add_day"])))
-        except ValueError:
-            pass
-        del st.query_params["add_day"]
-    elif "view_day" in qp and "view_idx" in qp:
-        try:
-            entry = entries_by_day[int(qp["view_day"])][int(qp["view_idx"])]
-            resolved_view_dialog(entry, f"{year}년 {month}월 {int(qp['view_day'])}일")
-        except (KeyError, ValueError, IndexError):
-            pass
-        del st.query_params["view_day"]
-        del st.query_params["view_idx"]
-
-    render_html_calendar(entries_by_day, resolved_entry_label, "resolved")
+    render_html_calendar(entries_by_day, resolved_entry_label, "resolved",
+                          resolved_add_dialog, resolved_view_dialog)
 
 
 # ---------------- 라우팅 ----------------
