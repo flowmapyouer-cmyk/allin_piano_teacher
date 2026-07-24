@@ -1,8 +1,11 @@
 """열피쌤 피드백 대시보드 (Streamlit + Supabase)."""
 import calendar
+import html as html_lib
 from datetime import date
+from urllib.parse import urlencode
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 import db
 
@@ -19,88 +22,21 @@ st.markdown(
       .block-container {{ padding-top: 1.6rem; }}
       .yp-title {{ font-size: 1.3rem; font-weight: 700; margin-bottom: 0; }}
       .yp-sub {{ color: #726D62; font-size: 0.85rem; margin-top: 2px; }}
-      .yp-daynum {{ font-size: 0.75rem; color: #A39D8F; font-variant-numeric: tabular-nums; }}
-
-      /* 달력 셀(테두리 컨테이너) 카드처럼 보이게 */
-      div[data-testid="stVerticalBlockBorderWrapper"] {{
-        border-radius: 10px !important;
-        border-color: #E3E0D8 !important;
-        transition: box-shadow .15s, border-color .15s;
-      }}
-      div[data-testid="stVerticalBlockBorderWrapper"]:hover {{
-        box-shadow: 0 2px 10px -4px rgba(31,111,114,0.25);
-        border-color: {ACCENT} !important;
-      }}
-
-      /* 사이드바 탭 버튼 살짝 둥글게 */
       section[data-testid="stSidebar"] button {{ border-radius: 9px !important; }}
-
-      /* 달력 안 등록 항목 버튼 - 폭 줄이고 텍스트 왼쪽 정렬 */
-      div[data-testid="stVerticalBlockBorderWrapper"] button {{
-        font-size: 0.78rem !important;
-        padding: 3px 8px !important;
-        justify-content: flex-start !important;
-        min-height: 0 !important;
-      }}
-      /* 날짜별 "+" 등록 버튼 - 작은 아이콘 버튼으로, 은은하게 */
-      div[class*="_add_"] button {{
-        background: transparent !important;
-        border: 1px dashed #E3E0D8 !important;
-        color: #A39D8F !important;
-        justify-content: center !important;
-        padding: 1px 0 !important;
-        font-size: 0.85rem !important;
-      }}
-      div[class*="_add_"] button:hover {{
-        border-color: {ACCENT} !important;
-        color: {ACCENT} !important;
-        background: transparent !important;
-      }}
-
-      .yp-daynum.today {{
-        display: inline-block;
-        background: {ACCENT}; color: #fff;
-        border-radius: 5px; padding: 0 6px;
-        font-weight: 700;
-      }}
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-
-ENTRY_COLORS = {
-    "idea": ("#FBEBCB", "#8A6216", "transparent"),
-    "general": ("#FBFAF7", "#24221E", "#E3E0D8"),
-    "resolved": ("#DFEEE4", "#1F5C3F", "transparent"),
-}
-
-
-def inject_entry_style(button_key: str, badge_class: str):
-    bg, fg, border = ENTRY_COLORS.get(badge_class, ("#FBFAF7", "#24221E", "#E3E0D8"))
-    st.markdown(
-        f"""
-        <style>
-        .st-key-{button_key} button {{
-            background: {bg} !important;
-            color: {fg} !important;
-            border: 1px solid {border} !important;
-            font-weight: 600 !important;
-        }}
-        .st-key-{button_key} button:hover {{
-            filter: brightness(0.96);
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+# ---------------- 상태 초기화 (URL 쿼리 파라미터를 기준으로) ----------------
+qp = st.query_params
 
 if "nav" not in st.session_state:
-    st.session_state.nav = "urgent"
+    st.session_state.nav = qp.get("nav", "urgent")
 if "cal_year" not in st.session_state:
-    st.session_state.cal_year = date.today().year
+    st.session_state.cal_year = int(qp.get("year", date.today().year))
 if "cal_month" not in st.session_state:
-    st.session_state.cal_month = date.today().month
+    st.session_state.cal_month = int(qp.get("month", date.today().month))
 
 
 def go_month(delta: int):
@@ -137,8 +73,13 @@ with st.sidebar:
         st.session_state.nav = "resolved"
         st.rerun()
 
+# 현재 상태를 URL에 반영 (달력 안 링크가 항상 최신 nav/year/month를 갖도록)
+st.query_params["nav"] = st.session_state.nav
+st.query_params["year"] = str(st.session_state.cal_year)
+st.query_params["month"] = str(st.session_state.cal_month)
 
-# ---------------- 공용: 월간 달력 그리드 ----------------
+
+# ---------------- 공용: 월 이동 네비게이션 ----------------
 
 def render_month_nav(key_prefix: str):
     c1, c2, c3 = st.columns([1, 4, 1])
@@ -158,41 +99,94 @@ def render_month_nav(key_prefix: str):
             st.rerun()
 
 
-def render_calendar(entries_by_day: dict, key_prefix: str, entry_label_fn, add_dialog_fn, view_dialog_fn):
-    year, month = st.session_state.cal_year, st.session_state.cal_month
-    weeks = calendar.Calendar(firstweekday=6).monthdayscalendar(year, month)  # 일요일 시작
+# ---------------- 공용: HTML 달력 (목업과 동일한 시각 스타일) ----------------
 
-    dow_cols = st.columns(7)
-    for i, label in enumerate(["일", "월", "화", "수", "목", "금", "토"]):
-        dow_cols[i].markdown(
-            f"<div style='text-align:center;color:#726D62;font-size:0.72rem;font-weight:700'>{label}</div>",
-            unsafe_allow_html=True,
-        )
+CAL_CSS = f"""
+<style>
+  * {{ box-sizing: border-box; }}
+  body {{ margin: 0; font-family: -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }}
+  .cal-grid {{ border: 1px solid #E3E0D8; border-radius: 10px; overflow: hidden; background: #fff; }}
+  .cal-dow {{ display: grid; grid-template-columns: repeat(7, 1fr); background: #FBFAF7; border-bottom: 1px solid #E3E0D8; }}
+  .cal-dow div {{ padding: 8px 0; text-align: center; font-size: 11.5px; color: #726D62; font-weight: 700; }}
+  .cal-body {{ display: grid; grid-template-columns: repeat(7, 1fr); grid-auto-rows: 92px; }}
+  .cal-cell {{ border-right: 1px solid #E3E0D8; border-bottom: 1px solid #E3E0D8; padding: 6px 7px; position: relative; }}
+  .cal-cell:nth-child(7n) {{ border-right: none; }}
+  .cal-cell.muted {{ background: #FAFAF8; }}
+  .cell-top {{ display: flex; align-items: center; justify-content: space-between; }}
+  .daynum {{ font-size: 12px; color: #A39D8F; font-variant-numeric: tabular-nums; }}
+  .cal-cell.today .daynum {{ background: {ACCENT}; color: #fff; border-radius: 5px; padding: 0 6px; font-weight: 700; }}
+  .cell-add {{
+    width: 18px; height: 18px; border-radius: 5px; border: 1px solid #E3E0D8;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; line-height: 1; color: #A39D8F; text-decoration: none;
+    opacity: 0; transition: opacity .12s, border-color .12s, color .12s;
+  }}
+  .cal-cell:hover .cell-add {{ opacity: 1; }}
+  .cell-add:hover {{ border-color: {ACCENT}; color: {ACCENT}; }}
+  .cal-card {{
+    display: block; margin-top: 5px; font-size: 11.5px; padding: 3px 6px; border-radius: 5px;
+    background: #FBFAF7; border: 1px solid #E3E0D8; color: #24221E; text-decoration: none;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }}
+  .cal-card:hover {{ border-color: #A39D8F; }}
+  .cal-card.idea {{ background: #FBEBCB; border-color: transparent; color: {IDEA}; }}
+  .cal-card.resolved {{ background: #DFEEE4; border-color: transparent; color: {RESOLVED}; font-weight: 600; }}
+</style>
+"""
 
+
+def build_calendar_html(entries_by_day: dict, entry_label_fn, nav_value: str, year: int, month: int) -> str:
     today = date.today()
-    for w_idx, week in enumerate(weeks):
-        cols = st.columns(7)
-        for i, day in enumerate(week):
-            with cols[i].container(border=True):
-                if day == 0:
-                    st.markdown("&nbsp;", unsafe_allow_html=True)
-                    continue
-                is_today = date(year, month, day) == today
-                daynum_class = "yp-daynum today" if is_today else "yp-daynum"
-                head_l, head_r = st.columns([4, 1])
-                with head_l:
-                    st.markdown(f'<div class="{daynum_class}">{day}</div>', unsafe_allow_html=True)
-                with head_r:
-                    if st.button("＋", key=f"{key_prefix}_add_{year}_{month}_{day}",
-                                 use_container_width=True, help="등록"):
-                        add_dialog_fn(date(year, month, day))
-                day_entries = entries_by_day.get(day, [])
-                for idx, entry in enumerate(day_entries):
-                    badge_class, label = entry_label_fn(entry)
-                    btn_key = f"{key_prefix}_{year}_{month}_{day}_{idx}"
-                    inject_entry_style(btn_key, badge_class)
-                    if st.button(label, key=btn_key, use_container_width=True):
-                        view_dialog_fn(entry, f"{year}년 {month}월 {day}일")
+    weeks = calendar.Calendar(firstweekday=6).monthdayscalendar(year, month)
+
+    def link(**extra) -> str:
+        params = {"nav": nav_value, "year": year, "month": month}
+        params.update(extra)
+        return "?" + urlencode(params)
+
+    dow_html = "".join(f"<div>{d}</div>" for d in ["일", "월", "화", "수", "목", "금", "토"])
+
+    cells = []
+    for week in weeks:
+        for day in week:
+            if day == 0:
+                cells.append('<div class="cal-cell muted"></div>')
+                continue
+            is_today = date(year, month, day) == today
+            cell_cls = "cal-cell today" if is_today else "cal-cell"
+            add_href = link(add_day=day)
+            add_onclick = f"window.top.location.href='{add_href}';return false;"
+            cards_html = []
+            for idx, entry in enumerate(entries_by_day.get(day, [])):
+                badge_class, label = entry_label_fn(entry)
+                view_href = link(view_day=day, view_idx=idx)
+                view_onclick = f"window.top.location.href='{view_href}';return false;"
+                cards_html.append(
+                    f'<a class="cal-card {badge_class}" href="{view_href}" target="_top" '
+                    f'onclick="{view_onclick}">{html_lib.escape(label)}</a>'
+                )
+            cells.append(
+                f'<div class="{cell_cls}">'
+                f'<div class="cell-top"><span class="daynum">{day}</span>'
+                f'<a class="cell-add" href="{add_href}" target="_top" onclick="{add_onclick}">＋</a></div>'
+                f'{"".join(cards_html)}'
+                f'</div>'
+            )
+
+    return (
+        CAL_CSS
+        + '<div class="cal-grid">'
+        + f'<div class="cal-dow">{dow_html}</div>'
+        + f'<div class="cal-body">{"".join(cells)}</div>'
+        + '</div>'
+    )
+
+
+def render_html_calendar(entries_by_day: dict, entry_label_fn, nav_value: str):
+    year, month = st.session_state.cal_year, st.session_state.cal_month
+    weeks_count = len(calendar.Calendar(firstweekday=6).monthdayscalendar(year, month))
+    html_str = build_calendar_html(entries_by_day, entry_label_fn, nav_value, year, month)
+    components.html(html_str, height=40 + weeks_count * 92 + 10, scrolling=False)
 
 
 # ---------------- 1. 긴급 확인 요청 ----------------
@@ -304,13 +298,29 @@ def render_general():
 
     render_month_nav("general")
 
-    rows = db.fetch_general(st.session_state.cal_year, st.session_state.cal_month)
+    year, month = st.session_state.cal_year, st.session_state.cal_month
+    rows = db.fetch_general(year, month)
     entries_by_day: dict[int, list] = {}
     for r in rows:
         day = int(r["date"].split("-")[2])
         entries_by_day.setdefault(day, []).append(r)
 
-    render_calendar(entries_by_day, "gen", general_entry_label, general_add_dialog, general_view_dialog)
+    if "add_day" in qp:
+        try:
+            general_add_dialog(date(year, month, int(qp["add_day"])))
+        except ValueError:
+            pass
+        del st.query_params["add_day"]
+    elif "view_day" in qp and "view_idx" in qp:
+        try:
+            entry = entries_by_day[int(qp["view_day"])][int(qp["view_idx"])]
+            general_view_dialog(entry, f"{year}년 {month}월 {int(qp['view_day'])}일")
+        except (KeyError, ValueError, IndexError):
+            pass
+        del st.query_params["view_day"]
+        del st.query_params["view_idx"]
+
+    render_html_calendar(entries_by_day, general_entry_label, "general")
 
 
 # ---------------- 3. 해결 완료 건 ----------------
@@ -357,13 +367,29 @@ def render_resolved():
 
     render_month_nav("res")
 
-    rows = db.fetch_resolved(st.session_state.cal_year, st.session_state.cal_month)
+    year, month = st.session_state.cal_year, st.session_state.cal_month
+    rows = db.fetch_resolved(year, month)
     entries_by_day: dict[int, list] = {}
     for r in rows:
         day = int(r["date"].split("-")[2])
         entries_by_day.setdefault(day, []).append(r)
 
-    render_calendar(entries_by_day, "res", resolved_entry_label, resolved_add_dialog, resolved_view_dialog)
+    if "add_day" in qp:
+        try:
+            resolved_add_dialog(date(year, month, int(qp["add_day"])))
+        except ValueError:
+            pass
+        del st.query_params["add_day"]
+    elif "view_day" in qp and "view_idx" in qp:
+        try:
+            entry = entries_by_day[int(qp["view_day"])][int(qp["view_idx"])]
+            resolved_view_dialog(entry, f"{year}년 {month}월 {int(qp['view_day'])}일")
+        except (KeyError, ValueError, IndexError):
+            pass
+        del st.query_params["view_day"]
+        del st.query_params["view_idx"]
+
+    render_html_calendar(entries_by_day, resolved_entry_label, "resolved")
 
 
 # ---------------- 라우팅 ----------------
