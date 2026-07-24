@@ -536,10 +536,19 @@
     document.getElementById('delete-confirm-btn').addEventListener('click', async () => {
       const input = document.getElementById('delete-confirm-input').value.trim();
       const errEl = document.getElementById('delete-confirm-error');
-      if (input !== DELETE_CONFIRM_PHRASE) { errEl.style.display = 'block'; return; }
-      errEl.style.display = 'none';
+      if (input !== DELETE_CONFIRM_PHRASE) {
+        errEl.textContent = `"${DELETE_CONFIRM_PHRASE}"라고 정확히 입력해주세요.`;
+        errEl.style.display = 'block';
+        return;
+      }
       const table = KIND_TO_TABLE[entry.kind];
-      await sb.from(table).delete().eq('id', entry.id);
+      const { error } = await sb.from(table).delete().eq('id', entry.id);
+      if (error) {
+        errEl.textContent = `삭제 실패: ${error.message}`;
+        errEl.style.display = 'block';
+        return;
+      }
+      errEl.style.display = 'none';
       document.getElementById('overlay-view').classList.remove('open');
       if (table === 'general_inquiries') loadGeneral(); else loadResolved();
     });
