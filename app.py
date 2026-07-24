@@ -16,7 +16,7 @@ RESOLVED = "#3B7D5A"
 st.markdown(
     f"""
     <style>
-      .block-container {{ padding-top: 1.6rem; }}
+      .block-container {{ padding-top: 3rem; }}
       .yp-title {{ font-size: 1.3rem; font-weight: 700; margin-bottom: 0; }}
       .yp-sub {{ color: #726D62; font-size: 0.85rem; margin-top: 2px; }}
       .yp-daynum {{ font-size: 0.75rem; color: #A39D8F; font-variant-numeric: tabular-nums; }}
@@ -35,20 +35,26 @@ st.markdown(
       /* 사이드바 탭 버튼 살짝 둥글게 */
       section[data-testid="stSidebar"] button {{ border-radius: 9px !important; }}
 
-      /* 달력 안 버튼 전반 (등록 항목 + "등록" 버튼) 폭 줄이고 텍스트 왼쪽 정렬 */
+      /* 달력 안 등록 항목 버튼 - 폭 줄이고 텍스트 왼쪽 정렬 */
       div[data-testid="stVerticalBlockBorderWrapper"] button {{
         font-size: 0.78rem !important;
         padding: 3px 8px !important;
         justify-content: flex-start !important;
         min-height: 0 !important;
       }}
-      /* "＋ 등록" 버튼은 은은하게 (tertiary 스타일) */
-      div[data-testid="stVerticalBlockBorderWrapper"] button[kind="tertiary"] {{
+      /* 날짜별 "+" 등록 버튼 - 작은 아이콘 버튼으로, 은은하게 */
+      div[class*="_add_"] button {{
+        background: transparent !important;
+        border: 1px dashed #E3E0D8 !important;
         color: #A39D8F !important;
         justify-content: center !important;
+        padding: 1px 0 !important;
+        font-size: 0.85rem !important;
       }}
-      div[data-testid="stVerticalBlockBorderWrapper"] button[kind="tertiary"]:hover {{
+      div[class*="_add_"] button:hover {{
+        border-color: {ACCENT} !important;
         color: {ACCENT} !important;
+        background: transparent !important;
       }}
 
       .yp-daynum.today {{
@@ -170,7 +176,13 @@ def render_calendar(entries_by_day: dict, key_prefix: str, entry_label_fn, add_d
                     continue
                 is_today = date(year, month, day) == today
                 daynum_class = "yp-daynum today" if is_today else "yp-daynum"
-                st.markdown(f'<div class="{daynum_class}">{day}</div>', unsafe_allow_html=True)
+                head_l, head_r = st.columns([4, 1])
+                with head_l:
+                    st.markdown(f'<div class="{daynum_class}">{day}</div>', unsafe_allow_html=True)
+                with head_r:
+                    if st.button("＋", key=f"{key_prefix}_add_{year}_{month}_{day}",
+                                 use_container_width=True, help="등록"):
+                        add_dialog_fn(date(year, month, day))
                 day_entries = entries_by_day.get(day, [])
                 for idx, entry in enumerate(day_entries):
                     badge_class, label = entry_label_fn(entry)
@@ -178,9 +190,6 @@ def render_calendar(entries_by_day: dict, key_prefix: str, entry_label_fn, add_d
                     inject_entry_style(btn_key, badge_class)
                     if st.button(label, key=btn_key, use_container_width=True):
                         view_dialog_fn(entry, f"{year}년 {month}월 {day}일")
-                if st.button("＋ 등록", key=f"{key_prefix}_add_{year}_{month}_{day}",
-                             use_container_width=True, type="tertiary"):
-                    add_dialog_fn(date(year, month, day))
 
 
 # ---------------- 1. 긴급 확인 요청 ----------------
