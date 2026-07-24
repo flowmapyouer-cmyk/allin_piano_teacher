@@ -481,6 +481,9 @@
     if (e.key === 'Escape') document.querySelectorAll('.overlay.open').forEach(o => o.classList.remove('open'));
   });
 
+  const DELETE_CONFIRM_PHRASE = '삭제 요청';
+  const KIND_TO_TABLE = { general: 'general_inquiries', idea: 'general_inquiries', resolved: 'resolved_issues' };
+
   function openViewModal(entry) {
     const badgeClass = entry.kind === 'idea' ? 'b-idea' : (entry.kind === 'resolved' ? 'b-resolved' : 'b-general');
     const badgeText = entry.kind === 'idea' ? '카페 활용 아이디어'
@@ -501,11 +504,44 @@
         <span class="view-badge ${badgeClass}">${escapeHtml(badgeText)}</span></div>
       <div class="view-field"><span class="vlabel">내용</span><div class="vvalue">${escapeHtml(entry.content)}</div></div>
       ${photoHtml}
-      <div class="modal-actions"><button class="btn ghost close-modal">닫기</button></div>
+      <div id="delete-zone"></div>
+      <div class="modal-actions">
+        <button class="btn danger" id="view-delete-btn">삭제</button>
+        <button class="btn ghost close-modal">닫기</button>
+      </div>
     `;
     document.getElementById('overlay-view').classList.add('open');
     document.getElementById('view-modal-body').querySelectorAll('.close-modal').forEach(btn => {
       btn.addEventListener('click', () => document.getElementById('overlay-view').classList.remove('open'));
+    });
+    document.getElementById('view-delete-btn').addEventListener('click', () => showDeleteConfirm(entry));
+  }
+
+  function showDeleteConfirm(entry) {
+    const zone = document.getElementById('delete-zone');
+    zone.innerHTML = `
+      <div class="view-field">
+        <div class="vvalue" style="color:var(--urgent)">정말 삭제하시나요? 삭제를 원하시면 아래 "${DELETE_CONFIRM_PHRASE}"라고 적어주세요.</div>
+        <input type="text" id="delete-confirm-input" placeholder="${DELETE_CONFIRM_PHRASE}" style="margin-top:8px;border:1px solid var(--border);border-radius:7px;padding:8px 10px;font:inherit;background:var(--surface-2);color:var(--text);width:100%;">
+        <div class="field-error" id="delete-confirm-error">"${DELETE_CONFIRM_PHRASE}"라고 정확히 입력해주세요.</div>
+      </div>
+    `;
+    document.getElementById('view-delete-btn').style.display = 'none';
+    const actions = document.querySelector('#view-modal-body .modal-actions');
+    actions.innerHTML = `
+      <button class="btn ghost" id="delete-cancel-btn">취소</button>
+      <button class="btn danger" id="delete-confirm-btn">삭제 확정</button>
+    `;
+    document.getElementById('delete-cancel-btn').addEventListener('click', () => openViewModal(entry));
+    document.getElementById('delete-confirm-btn').addEventListener('click', async () => {
+      const input = document.getElementById('delete-confirm-input').value.trim();
+      const errEl = document.getElementById('delete-confirm-error');
+      if (input !== DELETE_CONFIRM_PHRASE) { errEl.style.display = 'block'; return; }
+      errEl.style.display = 'none';
+      const table = KIND_TO_TABLE[entry.kind];
+      await sb.from(table).delete().eq('id', entry.id);
+      document.getElementById('overlay-view').classList.remove('open');
+      if (table === 'general_inquiries') loadGeneral(); else loadResolved();
     });
   }
 
@@ -622,7 +658,7 @@
     const entriesByDay = {};
     (data || []).forEach(r => {
       const day = Number(r.date.split('-')[2]);
-      const entry = { kind: r.type === 'idea' ? 'idea' : 'general', owner: r.owner, content: r.content };
+      const entry = { id: r.id, kind: r.type === 'idea' ? 'idea' : 'general', owner: r.owner, content: r.content };
       (entriesByDay[day] = entriesByDay[day] || []).push(entry);
     });
     document.getElementById('count-general').textContent = `이번 달 ${(data || []).length}건`;
@@ -660,7 +696,7 @@
     const entriesByDay = {};
     (data || []).forEach(r => {
       const day = Number(r.date.split('-')[2]);
-      const entry = { kind: 'resolved', owner: r.owner, status: r.status, content: r.content, photo_url: r.photo_url };
+      const entry = { id: r.id, kind: 'resolved', owner: r.owner, status: r.status, content: r.content, photo_url: r.photo_url };
       (entriesByDay[day] = entriesByDay[day] || []).push(entry);
     });
     document.getElementById('count-resolved').textContent = `이번 달 ${(data || []).length}건`;
