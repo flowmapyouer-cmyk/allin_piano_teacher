@@ -35,20 +35,26 @@ st.markdown(
       /* 사이드바 탭 버튼 살짝 둥글게 */
       section[data-testid="stSidebar"] button {{ border-radius: 9px !important; }}
 
-      /* 달력 안 버튼 전반 (등록 항목 + "등록" 버튼) 폭 줄이고 텍스트 왼쪽 정렬 */
+      /* 달력 안 등록 항목 버튼 - 폭 줄이고 텍스트 왼쪽 정렬 */
       div[data-testid="stVerticalBlockBorderWrapper"] button {{
         font-size: 0.78rem !important;
         padding: 3px 8px !important;
         justify-content: flex-start !important;
         min-height: 0 !important;
       }}
-      /* "＋ 등록" 버튼은 은은하게 (tertiary 스타일) */
-      div[data-testid="stVerticalBlockBorderWrapper"] button[kind="tertiary"] {{
+      /* 날짜별 "+" 등록 버튼 - 작은 아이콘 버튼으로, 은은하게 */
+      div[class*="_add_"] button {{
+        background: transparent !important;
+        border: 1px dashed #E3E0D8 !important;
         color: #A39D8F !important;
         justify-content: center !important;
+        padding: 1px 0 !important;
+        font-size: 0.85rem !important;
       }}
-      div[data-testid="stVerticalBlockBorderWrapper"] button[kind="tertiary"]:hover {{
+      div[class*="_add_"] button:hover {{
+        border-color: {ACCENT} !important;
         color: {ACCENT} !important;
+        background: transparent !important;
       }}
 
       .yp-daynum.today {{
@@ -115,15 +121,18 @@ with st.sidebar:
     st.write("")
 
     urgent_count = len(db.fetch_urgent())
+    general_count = len(db.fetch_general(st.session_state.cal_year, st.session_state.cal_month))
+    resolved_count = len(db.fetch_resolved(st.session_state.cal_year, st.session_state.cal_month))
+
     if st.button(f"🚨 긴급 확인 요청  ({urgent_count})", use_container_width=True,
                  type="primary" if st.session_state.nav == "urgent" else "secondary"):
         st.session_state.nav = "urgent"
         st.rerun()
-    if st.button("🗓 일반 문의 건", use_container_width=True,
+    if st.button(f"🗓 일반 문의 건  ({general_count})", use_container_width=True,
                  type="primary" if st.session_state.nav == "general" else "secondary"):
         st.session_state.nav = "general"
         st.rerun()
-    if st.button("✅ 해결 완료 건", use_container_width=True,
+    if st.button(f"✅ 해결 완료 건  ({resolved_count})", use_container_width=True,
                  type="primary" if st.session_state.nav == "resolved" else "secondary"):
         st.session_state.nav = "resolved"
         st.rerun()
@@ -170,7 +179,13 @@ def render_calendar(entries_by_day: dict, key_prefix: str, entry_label_fn, add_d
                     continue
                 is_today = date(year, month, day) == today
                 daynum_class = "yp-daynum today" if is_today else "yp-daynum"
-                st.markdown(f'<div class="{daynum_class}">{day}</div>', unsafe_allow_html=True)
+                head_l, head_r = st.columns([4, 1])
+                with head_l:
+                    st.markdown(f'<div class="{daynum_class}">{day}</div>', unsafe_allow_html=True)
+                with head_r:
+                    if st.button("＋", key=f"{key_prefix}_add_{year}_{month}_{day}",
+                                 use_container_width=True, help="등록"):
+                        add_dialog_fn(date(year, month, day))
                 day_entries = entries_by_day.get(day, [])
                 for idx, entry in enumerate(day_entries):
                     badge_class, label = entry_label_fn(entry)
@@ -178,9 +193,6 @@ def render_calendar(entries_by_day: dict, key_prefix: str, entry_label_fn, add_d
                     inject_entry_style(btn_key, badge_class)
                     if st.button(label, key=btn_key, use_container_width=True):
                         view_dialog_fn(entry, f"{year}년 {month}월 {day}일")
-                if st.button("＋ 등록", key=f"{key_prefix}_add_{year}_{month}_{day}",
-                             use_container_width=True, type="tertiary"):
-                    add_dialog_fn(date(year, month, day))
 
 
 # ---------------- 1. 긴급 확인 요청 ----------------
