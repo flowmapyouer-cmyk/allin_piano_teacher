@@ -733,7 +733,9 @@
 
     let photo_url = null;
     if (file) {
-      const path = `${crypto.randomUUID()}-${file.name}`;
+      const extMatch = file.name.match(/\.[a-zA-Z0-9]+$/);
+      const ext = extMatch ? extMatch[0] : '';
+      const path = `${crypto.randomUUID()}${ext}`;
       const { error: upErr } = await sb.storage.from('resolved-photos').upload(path, file);
       if (upErr) {
         errEl.textContent = `사진 업로드 실패: ${upErr.message}`;
